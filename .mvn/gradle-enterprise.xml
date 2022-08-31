@@ -1,0 +1,37 @@
+<gradleEnterprise>
+	<server>
+		<url>https://ge.jiewa.tech:31378</url>
+		<accessKey>fy54r3qrhrg5swme3gkvzkccyw7qbkfhc2nsb2vfiyjz7cdzy3fa</accessKey>
+		<allowUntrusted>true</allowUntrusted>
+	</server>
+	<buildScan>
+		<publish>ALWAYS</publish>
+		<capture>
+			<goalInputFiles>true</goalInputFiles>
+			<buildLogging>true</buildLogging>
+			<testLogging>true</testLogging>
+		</capture>
+		<tags>
+			<tag>maven</tag>
+		</tags>
+		<backgroundBuildScanUpload>#{env['CI'] == null}</backgroundBuildScanUpload>
+	</buildScan>
+	<buildCache>
+		<local>
+			<enabled>false</enabled>
+			<storeEnabled>false</storeEnabled>
+		</local>
+		<remote>
+			<enabled>false</enabled>
+			<storeEnabled>false</storeEnabled>
+			<server>
+				<url>https://ge.jiewa.tech:31378/cache/</url>
+				<allowUntrusted>true</allowUntrusted>
+				<credentials>
+					<username>${env.GRADLE_ENTERPRISE_CACHE_USERNAME}</username>
+					<password>${env.GRADLE_ENTERPRISE_CACHE_PASSWORD}</password>
+				</credentials>
+			</server>
+		</remote>
+	</buildCache>
+</gradleEnterprise>
