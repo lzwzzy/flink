@@ -18,11 +18,11 @@
 	</buildScan>
 	<buildCache>
 		<local>
-			<enabled>true</enabled>
+			<enabled>false</enabled>
 			<storeEnabled>true</storeEnabled>
 		</local>
 		<remote>
-			<enabled>true</enabled>
+			<enabled>false</enabled>
 			<storeEnabled>true</storeEnabled>
 			<server>
 				<url>https://ge.jiewa.tech:31378/cache/</url>
