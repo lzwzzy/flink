@@ -17,3 +17,4 @@ jobs:
           owner: apache
           base: master
           head: master
+          auto_approve: true
