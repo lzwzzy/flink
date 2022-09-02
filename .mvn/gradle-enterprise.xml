@@ -14,7 +14,7 @@
 		<tags>
 			<tag>maven</tag>
 		</tags>
-		<backgroundBuildScanUpload>#{env['CI'] == null}</backgroundBuildScanUpload>
+		<backgroundBuildScanUpload>false</backgroundBuildScanUpload>
 	</buildScan>
 	<buildCache>
 		<local>
