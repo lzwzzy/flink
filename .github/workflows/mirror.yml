@@ -1,6 +1,11 @@
 name: Mirroring
 
-on: [push, delete]
+on: 
+  schedule:
+    - cron: '*/30 * * * *' # every 30 minutes
+  workflow_dispatch: # on button click
+  push:
+  delete:
 
 jobs:
   to_gitlab:
