@@ -14,5 +14,7 @@ jobs:
       - uses: tgymnich/fork-sync@v1.4
         with:
           token: ${{ secrets.PERSONAL_TOKEN }}
+          owner: apache
           base: master
           head: master
+          auto_approve: true

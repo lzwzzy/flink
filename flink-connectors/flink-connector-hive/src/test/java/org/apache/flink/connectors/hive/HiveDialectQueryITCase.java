@@ -182,7 +182,8 @@ public class HiveDialectQueryITCase {
                                 "select a, one from binary_t lateral view explode(ab) abs as one where a > 0",
                                 "select /*+ mapjoin(dest) */ foo.x from foo join dest on foo.x = dest.x union"
                                         + " all select /*+ mapjoin(dest) */ foo.x from foo join dest on foo.y = dest.y",
-                                "with cte as (select * from src) select * from cte"));
+                                "with cte as (select * from src) select * from cte",
+                                "select 1 / 0"));
         if (HiveVersionTestUtil.HIVE_230_OR_LATER) {
             toRun.add(
                     "select weekofyear(current_timestamp()), dayofweek(current_timestamp()) from src limit 1");
@@ -587,6 +588,15 @@ public class HiveDialectQueryITCase {
                                     defaultPartitionName,
                                     defaultPartitionName,
                                     defaultPartitionName));
+
+            // test use binary record reader
+            result =
+                    CollectionUtil.iteratorToList(
+                            tableEnv.executeSql(
+                                            "select transform(key) using 'cat' as (tkey)"
+                                                    + " RECORDREADER 'org.apache.hadoop.hive.ql.exec.BinaryRecordReader' from src")
+                                    .collect());
+            assertThat(result.toString()).isEqualTo("[+I[1\n2\n3\n]]");
         } finally {
             tableEnv.executeSql("drop table dest1");
             tableEnv.executeSql("drop table destp1");

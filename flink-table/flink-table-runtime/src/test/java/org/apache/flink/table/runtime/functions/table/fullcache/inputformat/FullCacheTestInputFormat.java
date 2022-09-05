@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-package org.apache.flink.table.runtime.functions.table.fullcache;
+package org.apache.flink.table.runtime.functions.table.fullcache.inputformat;
 
 import org.apache.flink.api.common.io.DefaultInputSplitAssigner;
 import org.apache.flink.api.common.io.InputFormat;
@@ -25,15 +25,18 @@ import org.apache.flink.api.common.io.statistics.BaseStatistics;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.io.InputSplit;
 import org.apache.flink.core.io.InputSplitAssigner;
+import org.apache.flink.table.data.GenericRowData;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.data.util.DataFormatConverters;
+import org.apache.flink.table.runtime.generated.GeneratedProjection;
+import org.apache.flink.table.runtime.generated.Projection;
 import org.apache.flink.types.Row;
 
 import java.io.IOException;
 import java.util.Collection;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Consumer;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -48,10 +51,13 @@ public class FullCacheTestInputFormat
     // RowData is not serializable, so we store Rows
     private final Collection<Row> dataRows;
     private final DataFormatConverters.RowConverter rowConverter;
+    private final GeneratedProjection generatedProjection;
+    private final boolean projectable;
     private final int deltaNumSplits;
-    private final transient Consumer<Collection<RowData>> secondLoadDataChange;
 
     private transient ConcurrentLinkedQueue<RowData> queue;
+    private transient Projection<RowData, GenericRowData> projection;
+
     private int loadCounter;
     private int maxReadRecords;
     private int readRecords;
@@ -60,23 +66,27 @@ public class FullCacheTestInputFormat
 
     public FullCacheTestInputFormat(
             Collection<Row> dataRows,
+            Optional<GeneratedProjection> generatedProjection,
             DataFormatConverters.RowConverter rowConverter,
-            int deltaNumSplits,
-            Consumer<Collection<RowData>> secondLoadDataChange) {
+            int deltaNumSplits) {
         // for unit tests
         this.dataRows = dataRows;
+        this.projectable = generatedProjection.isPresent();
+        this.generatedProjection = generatedProjection.orElse(null);
         this.rowConverter = rowConverter;
         this.deltaNumSplits = deltaNumSplits;
-        this.secondLoadDataChange = secondLoadDataChange;
     }
 
     public FullCacheTestInputFormat(
-            Collection<Row> dataRows, DataFormatConverters.RowConverter rowConverter) {
+            Collection<Row> dataRows,
+            Optional<GeneratedProjection> generatedProjection,
+            DataFormatConverters.RowConverter rowConverter) {
         // for integration tests
         this.dataRows = dataRows;
+        this.projectable = generatedProjection.isPresent();
+        this.generatedProjection = generatedProjection.orElse(null);
         this.rowConverter = rowConverter;
         this.deltaNumSplits = 0;
-        this.secondLoadDataChange = null;
     }
 
     @Override
@@ -89,9 +99,6 @@ public class FullCacheTestInputFormat
         dataRows.forEach(row -> queue.add(rowConverter.toInternal(row)));
         // divide data evenly between InputFormat copies
         loadCounter++;
-        if (loadCounter == 2 && secondLoadDataChange != null) {
-            secondLoadDataChange.accept(queue);
-        }
         maxReadRecords = (int) Math.ceil((double) queue.size() / numSplits);
         return splits;
     }
@@ -105,6 +112,10 @@ public class FullCacheTestInputFormat
     @Override
     public void open(QueueInputSplit split) throws IOException {
         this.queue = split.getQueue();
+        if (projectable) {
+            projection =
+                    generatedProjection.newInstance(Thread.currentThread().getContextClassLoader());
+        }
         this.readRecords = 0;
         numOpens++;
         OPEN_CLOSED_COUNTER.incrementAndGet();
@@ -122,7 +133,12 @@ public class FullCacheTestInputFormat
             return null;
         }
         readRecords++;
-        return queue.poll();
+        RowData rowData = queue.poll();
+        if (rowData != null && projectable) {
+            // InputSplitCacheLoadTask will do copy work
+            return projection.apply(rowData);
+        }
+        return rowData;
     }
 
     @Override
