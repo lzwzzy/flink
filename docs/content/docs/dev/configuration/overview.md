@@ -59,6 +59,12 @@ to create a Flink project.
 You can create a project based on an [Archetype](https://maven.apache.org/guides/introduction/introduction-to-archetypes.html)
 with the Maven command below or use the provided quickstart bash script.
 
+{{< hint warning >}}
+All Flink Scala APIs are deprecated and will be removed in a future Flink version. You can still build your application in Scala, but you should move to the Java version of either the DataStream and/or Table API.
+
+See <a href="https://cwiki.apache.org/confluence/display/FLINK/FLIP-265+Deprecate+and+remove+Scala+API+support">FLIP-265 Deprecate and remove Scala API support</a>
+{{< /hint >}}
+
 ### Maven command
 ```bash
 $ mvn archetype:generate                \
@@ -103,8 +109,8 @@ ext {
     javaVersion = '1.8'
     flinkVersion = '{{< version >}}'
     scalaBinaryVersion = '{{< scala_version >}}'
-    slf4jVersion = '1.7.32'
-    log4jVersion = '2.17.1'
+    slf4jVersion = '1.7.36'
+    log4jVersion = '2.24.1'
 }
 sourceCompatibility = javaVersion
 targetCompatibility = javaVersion
@@ -207,8 +213,7 @@ They can be used separately, or they can be mixed, depending on your use cases:
 
 | APIs you want to use                                                              | Dependency you need to add                          |
 |-----------------------------------------------------------------------------------|-----------------------------------------------------|
-| [DataStream]({{< ref "docs/dev/datastream/overview" >}})                          | `flink-streaming-java`                              |  
-| [DataStream with Scala]({{< ref "docs/dev/datastream/scala_api_extensions" >}})   | `flink-streaming-scala{{< scala_version >}}`        |   
+| [DataStream]({{< ref "docs/dev/datastream/overview" >}})                          | `flink-streaming-java`                              |   
 | [Table API]({{< ref "docs/dev/table/common" >}})                                  | `flink-table-api-java`                              |   
 | [Table API with Scala]({{< ref "docs/dev/table/common" >}})                       | `flink-table-api-scala{{< scala_version >}}`        |
 | [Table API + DataStream]({{< ref "docs/dev/table/data_stream_api" >}})            | `flink-table-api-java-bridge`                       |
@@ -218,7 +223,7 @@ Just include them in your build tool script/descriptor, and you can start develo
 
 ## Running and packaging
 
-If you want to run your job by simply executing the main class, you will need `flink-runtime` in your classpath.
+If you want to run your job by simply executing the main class, you will need `flink-clients` in your classpath.
 In case of Table API programs, you will also need `flink-table-runtime` and `flink-table-planner-loader`.
 
 As a rule of thumb, we **suggest** packaging the application code and all its required dependencies into one fat/uber JAR.

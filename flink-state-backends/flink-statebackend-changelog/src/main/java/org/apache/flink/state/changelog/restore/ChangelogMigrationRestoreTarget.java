@@ -21,7 +21,7 @@ import org.apache.flink.api.common.state.State;
 import org.apache.flink.api.common.state.StateDescriptor;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.api.java.tuple.Tuple2;
-import org.apache.flink.core.memory.DataOutputViewStreamWrapper;
+import org.apache.flink.core.memory.DataOutputView;
 import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.state.AbstractKeyedStateBackend;
 import org.apache.flink.runtime.state.CheckpointStreamFactory;
@@ -170,20 +170,17 @@ public class ChangelogMigrationRestoreTarget<K> implements ChangelogRestoreTarge
 
         @Override
         public void valueElementAdded(
-                ThrowingConsumer<DataOutputViewStreamWrapper, IOException> dataSerializer,
-                Namespace ns)
+                ThrowingConsumer<DataOutputView, IOException> dataSerializer, Namespace ns)
                 throws IOException {}
 
         @Override
         public void valueElementAddedOrUpdated(
-                ThrowingConsumer<DataOutputViewStreamWrapper, IOException> dataSerializer,
-                Namespace ns)
+                ThrowingConsumer<DataOutputView, IOException> dataSerializer, Namespace ns)
                 throws IOException {}
 
         @Override
         public void valueElementRemoved(
-                ThrowingConsumer<DataOutputViewStreamWrapper, IOException> dataSerializer,
-                Namespace ns)
+                ThrowingConsumer<DataOutputView, IOException> dataSerializer, Namespace ns)
                 throws IOException {}
 
         @Override
@@ -202,6 +199,11 @@ public class ChangelogMigrationRestoreTarget<K> implements ChangelogRestoreTarge
             @Override
             public void setCurrentKey(K newKey) {
                 keyedStateBackend.setCurrentKey(newKey);
+            }
+
+            @Override
+            public void setCurrentKeyAndKeyGroup(K newKey, int newKeyGroupIndex) {
+                keyedStateBackend.setCurrentKeyAndKeyGroup(newKey, newKeyGroupIndex);
             }
 
             @Override

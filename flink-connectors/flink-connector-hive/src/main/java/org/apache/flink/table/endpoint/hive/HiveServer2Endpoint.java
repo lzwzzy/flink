@@ -28,6 +28,7 @@ import org.apache.flink.table.catalog.CatalogBaseTable.TableKind;
 import org.apache.flink.table.catalog.ResolvedSchema;
 import org.apache.flink.table.catalog.hive.HiveCatalog;
 import org.apache.flink.table.catalog.hive.client.HiveShimLoader;
+import org.apache.flink.table.factories.FactoryUtil;
 import org.apache.flink.table.gateway.api.SqlGatewayService;
 import org.apache.flink.table.gateway.api.endpoint.EndpointVersion;
 import org.apache.flink.table.gateway.api.endpoint.SqlGatewayEndpoint;
@@ -40,8 +41,6 @@ import org.apache.flink.table.gateway.api.session.SessionEnvironment;
 import org.apache.flink.table.gateway.api.session.SessionHandle;
 import org.apache.flink.table.gateway.api.utils.SqlGatewayException;
 import org.apache.flink.table.gateway.api.utils.ThreadUtils;
-import org.apache.flink.table.module.Module;
-import org.apache.flink.table.module.hive.HiveModule;
 import org.apache.flink.util.ExceptionUtils;
 
 import org.apache.hadoop.hive.conf.HiveConf;
@@ -117,7 +116,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 
 import static org.apache.flink.configuration.ExecutionOptions.RUNTIME_MODE;
 import static org.apache.flink.table.api.config.TableConfigOptions.TABLE_DML_SYNC;
@@ -183,7 +181,7 @@ public class HiveServer2Endpoint implements TCLIService.Iface, SqlGatewayEndpoin
 
     private final String catalogName;
     @Nullable private final String defaultDatabase;
-    @Nullable private final String hiveConfPath;
+    private final HiveConf hiveConf;
     private final boolean allowEmbedded;
 
     // --------------------------------------------------------------------------------------------
@@ -202,7 +200,7 @@ public class HiveServer2Endpoint implements TCLIService.Iface, SqlGatewayEndpoin
             int maxWorkerThreads,
             Duration workerKeepAliveTime,
             String catalogName,
-            @Nullable String hiveConfPath,
+            HiveConf hiveConf,
             @Nullable String defaultDatabase,
             String moduleName) {
         this(
@@ -215,7 +213,7 @@ public class HiveServer2Endpoint implements TCLIService.Iface, SqlGatewayEndpoin
                 maxWorkerThreads,
                 workerKeepAliveTime,
                 catalogName,
-                hiveConfPath,
+                hiveConf,
                 defaultDatabase,
                 moduleName,
                 false,
@@ -233,7 +231,7 @@ public class HiveServer2Endpoint implements TCLIService.Iface, SqlGatewayEndpoin
             int maxWorkerThreads,
             Duration workerKeepAliveTime,
             String catalogName,
-            @Nullable String hiveConfPath,
+            HiveConf hiveConf,
             @Nullable String defaultDatabase,
             String moduleName,
             boolean allowEmbedded,
@@ -250,7 +248,7 @@ public class HiveServer2Endpoint implements TCLIService.Iface, SqlGatewayEndpoin
         this.isVerbose = isVerbose;
 
         this.catalogName = checkNotNull(catalogName);
-        this.hiveConfPath = hiveConfPath;
+        this.hiveConf = hiveConf;
         this.defaultDatabase = defaultDatabase;
 
         this.moduleName = moduleName;
@@ -296,14 +294,8 @@ public class HiveServer2Endpoint implements TCLIService.Iface, SqlGatewayEndpoin
                     tOpenSessionReq.getConfiguration() == null
                             ? Collections.emptyMap()
                             : tOpenSessionReq.getConfiguration();
-            Map<String, String> sessionConfig = new HashMap<>();
-            sessionConfig.put(TABLE_SQL_DIALECT.key(), SqlDialect.HIVE.name());
-            sessionConfig.put(RUNTIME_MODE.key(), RuntimeExecutionMode.BATCH.name());
-            sessionConfig.put(TABLE_DML_SYNC.key(), "true");
-            HiveConf conf = HiveCatalog.createHiveConf(hiveConfPath, null);
-            // set variables to HiveConf or Session's conf
-            setVariables(conf, sessionConfig, originSessionConf);
 
+            HiveConf conf = new HiveConf(hiveConf);
             Catalog hiveCatalog =
                     new HiveCatalog(
                             catalogName,
@@ -311,13 +303,33 @@ public class HiveServer2Endpoint implements TCLIService.Iface, SqlGatewayEndpoin
                             conf,
                             HiveShimLoader.getHiveVersion(),
                             allowEmbedded);
-            Module hiveModule = new HiveModule();
+            // Trigger the creation of the HiveMetaStoreClient to use the same HiveConf. If the
+            // initial HiveConf is different, it will trigger the PersistenceManagerFactory to close
+            // all the alive PersistenceManager in the ObjectStore, which may get error like
+            // "Persistence Manager has been closed" in the later connection.
+            hiveCatalog.open();
+            // create hive module lazily
+            SessionEnvironment.ModuleCreator hiveModuleCreator =
+                    (readableConfig, classLoader) ->
+                            FactoryUtil.createModule(
+                                    moduleName,
+                                    Collections.emptyMap(),
+                                    readableConfig,
+                                    classLoader);
+            // set variables to HiveConf and Session's conf
+            Map<String, String> sessionConfig = new HashMap<>();
+            sessionConfig.put(TABLE_SQL_DIALECT.key(), SqlDialect.HIVE.name());
+            sessionConfig.put(RUNTIME_MODE.key(), RuntimeExecutionMode.BATCH.name());
+            sessionConfig.put(TABLE_DML_SYNC.key(), "true");
+            setVariables(conf, sessionConfig, originSessionConf);
             SessionHandle sessionHandle =
                     service.openSession(
                             SessionEnvironment.newBuilder()
                                     .setSessionEndpointVersion(sessionVersion)
-                                    .registerCatalog(catalogName, hiveCatalog)
-                                    .registerModuleAtHead(moduleName, hiveModule)
+                                    .registerCatalogCreator(
+                                            catalogName,
+                                            (readableConfig, classLoader) -> hiveCatalog)
+                                    .registerModuleCreatorAtHead(moduleName, hiveModuleCreator)
                                     .setDefaultCatalog(catalogName)
                                     .addSessionConfig(sessionConfig)
                                     .build());
@@ -371,6 +383,8 @@ public class HiveServer2Endpoint implements TCLIService.Iface, SqlGatewayEndpoin
             resp.setInfoValue(tInfoValue);
         } catch (Throwable t) {
             LOG.error("Failed to GetInfo.", t);
+            // InfoValue must be set because the hive service requires it.
+            resp.setInfoValue(TGetInfoValue.lenValue(0));
             resp.setStatus(toTStatus(t));
         }
         return resp;
@@ -801,7 +815,6 @@ public class HiveServer2Endpoint implements TCLIService.Iface, SqlGatewayEndpoin
                 && Objects.equals(workerKeepAliveTime, that.workerKeepAliveTime)
                 && Objects.equals(catalogName, that.catalogName)
                 && Objects.equals(defaultDatabase, that.defaultDatabase)
-                && Objects.equals(hiveConfPath, that.hiveConfPath)
                 && Objects.equals(allowEmbedded, that.allowEmbedded)
                 && Objects.equals(isVerbose, that.isVerbose)
                 && Objects.equals(moduleName, that.moduleName);
@@ -819,7 +832,6 @@ public class HiveServer2Endpoint implements TCLIService.Iface, SqlGatewayEndpoin
                 maxMessageSize,
                 catalogName,
                 defaultDatabase,
-                hiveConfPath,
                 allowEmbedded,
                 isVerbose,
                 moduleName);
@@ -856,10 +868,6 @@ public class HiveServer2Endpoint implements TCLIService.Iface, SqlGatewayEndpoin
                                     .inputProtocolFactory(
                                             new TBinaryProtocol.Factory(
                                                     true, true, maxMessageSize, maxMessageSize))
-                                    .requestTimeout(requestTimeoutMs)
-                                    .requestTimeoutUnit(TimeUnit.MILLISECONDS)
-                                    .beBackoffSlotLength(backOffSlotLengthMs)
-                                    .beBackoffSlotLengthUnit(TimeUnit.MILLISECONDS)
                                     .executorService(executor));
         } catch (Exception e) {
             throw new SqlGatewayException("Failed to build the server.", e);

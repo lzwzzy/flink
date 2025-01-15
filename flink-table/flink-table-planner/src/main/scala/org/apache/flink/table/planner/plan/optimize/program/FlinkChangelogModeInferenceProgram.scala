@@ -17,10 +17,10 @@
  */
 package org.apache.flink.table.planner.plan.optimize.program
 
+import org.apache.flink.legacy.table.sinks.{AppendStreamTableSink, RetractStreamTableSink, StreamTableSink, UpsertStreamTableSink}
 import org.apache.flink.table.api.TableException
 import org.apache.flink.table.api.config.ExecutionConfigOptions
 import org.apache.flink.table.api.config.ExecutionConfigOptions.UpsertMaterialize
-import org.apache.flink.table.catalog.{ManagedTableListener, ResolvedCatalogBaseTable}
 import org.apache.flink.table.connector.ChangelogMode
 import org.apache.flink.table.planner.plan.`trait`._
 import org.apache.flink.table.planner.plan.`trait`.UpdateKindTrait.{beforeAfterOrNone, onlyAfterOrNone, BEFORE_AND_AFTER, ONLY_UPDATE_AFTER}
@@ -31,7 +31,6 @@ import org.apache.flink.table.planner.plan.utils.RankProcessStrategy.{AppendFast
 import org.apache.flink.table.planner.sinks.DataStreamTableSink
 import org.apache.flink.table.planner.utils.ShortcutUtils.unwrapTableConfig
 import org.apache.flink.table.runtime.operators.join.FlinkJoinType
-import org.apache.flink.table.sinks.{AppendStreamTableSink, RetractStreamTableSink, StreamTableSink, UpsertStreamTableSink}
 import org.apache.flink.types.RowKind
 
 import org.apache.calcite.rel.RelNode
@@ -155,18 +154,6 @@ class FlinkChangelogModeInferenceProgram extends FlinkOptimizeProgram[StreamOpti
         // ignore required trait from context, because sink is the true root
         sink.copy(sinkTrait, children).asInstanceOf[StreamPhysicalRel]
 
-      case deduplicate: StreamPhysicalDeduplicate =>
-        // deduplicate only support insert only as input
-        val children = visitChildren(deduplicate, ModifyKindSetTrait.INSERT_ONLY)
-        val providedTrait = if (!deduplicate.keepLastRow && !deduplicate.isRowtime) {
-          // only proctime first row deduplicate does not produce UPDATE changes
-          ModifyKindSetTrait.INSERT_ONLY
-        } else {
-          // other deduplicate produce update changes
-          ModifyKindSetTrait.ALL_CHANGES
-        }
-        createNewNode(deduplicate, children, providedTrait, requiredTrait, requester)
-
       case agg: StreamPhysicalGroupAggregate =>
         // agg support all changes in input
         val children = visitChildren(agg, ModifyKindSetTrait.ALL_CHANGES)
@@ -219,8 +206,14 @@ class FlinkChangelogModeInferenceProgram extends FlinkOptimizeProgram[StreamOpti
         val providedTrait = new ModifyKindSetTrait(builder.build())
         createNewNode(window, children, providedTrait, requiredTrait, requester)
 
-      case _: StreamPhysicalWindowAggregate | _: StreamPhysicalWindowRank |
-          _: StreamPhysicalWindowDeduplicate =>
+      case window: StreamPhysicalWindowAggregate =>
+        // WindowAggregate and WindowTableAggregate support all changes in input
+        val children = visitChildren(window, ModifyKindSetTrait.ALL_CHANGES)
+        // TODO support early / late fire and then this node may produce update records
+        val providedTrait = new ModifyKindSetTrait(ModifyKindSet.INSERT_ONLY)
+        createNewNode(window, children, providedTrait, requiredTrait, requester)
+
+      case _: StreamPhysicalWindowRank | _: StreamPhysicalWindowDeduplicate =>
         // WindowAggregate, WindowRank, WindowDeduplicate support insert-only in input
         val children = visitChildren(rel, ModifyKindSetTrait.INSERT_ONLY)
         val providedTrait = ModifyKindSetTrait.INSERT_ONLY
@@ -474,23 +467,21 @@ class FlinkChangelogModeInferenceProgram extends FlinkOptimizeProgram[StreamOpti
 
         case _: StreamPhysicalGroupAggregate | _: StreamPhysicalGroupTableAggregate |
             _: StreamPhysicalLimit | _: StreamPhysicalPythonGroupAggregate |
-            _: StreamPhysicalPythonGroupTableAggregate |
-            _: StreamPhysicalGroupWindowAggregateBase =>
-          // Aggregate, TableAggregate, Limit and GroupWindowAggregate requires update_before if
-          // there are updates
+            _: StreamPhysicalPythonGroupTableAggregate | _: StreamPhysicalGroupWindowAggregateBase |
+            _: StreamPhysicalWindowAggregate =>
+          // Aggregate, TableAggregate, Limit, GroupWindowAggregate, WindowAggregate,
+          // and WindowTableAggregate requires update_before if there are updates
           val requiredChildTrait = beforeAfterOrNone(getModifyKindSet(rel.getInput(0)))
           val children = visitChildren(rel, requiredChildTrait)
           // use requiredTrait as providedTrait, because they should support all kinds of UpdateKind
           createNewNode(rel, children, requiredTrait)
 
-        case _: StreamPhysicalWindowAggregate | _: StreamPhysicalWindowRank |
-            _: StreamPhysicalWindowDeduplicate | _: StreamPhysicalDeduplicate |
+        case _: StreamPhysicalWindowRank | _: StreamPhysicalWindowDeduplicate |
             _: StreamPhysicalTemporalSort | _: StreamPhysicalMatch |
             _: StreamPhysicalOverAggregate | _: StreamPhysicalIntervalJoin |
             _: StreamPhysicalPythonOverAggregate | _: StreamPhysicalWindowJoin =>
-          // WindowAggregate, WindowTableAggregate, WindowRank, WindowDeduplicate, Deduplicate,
-          // TemporalSort, CEP, OverAggregate, and IntervalJoin, WindowJoin require nothing about
-          // UpdateKind.
+          // WindowRank, WindowDeduplicate, Deduplicate, TemporalSort, CEP, OverAggregate,
+          // and IntervalJoin, WindowJoin require nothing about UpdateKind.
           val children = visitChildren(rel, UpdateKindTrait.NONE)
           createNewNode(rel, children, requiredTrait)
 
@@ -646,29 +637,6 @@ class FlinkChangelogModeInferenceProgram extends FlinkOptimizeProgram[StreamOpti
           }
 
         case normalize: StreamPhysicalChangelogNormalize =>
-          val contextResolvedTable = normalize.contextResolvedTable
-          val tableIdentifier = contextResolvedTable.getIdentifier
-          if (
-            !contextResolvedTable.isAnonymous
-            && requiredTrait == UpdateKindTrait.ONLY_UPDATE_AFTER
-          ) {
-            val catalogName = tableIdentifier.getCatalogName
-            val catalog = context.getCatalogManager.getCatalog(catalogName).orElse(null)
-            val catalogTable = contextResolvedTable.getResolvedTable[ResolvedCatalogBaseTable[_]]
-            if (ManagedTableListener.isManagedTable(catalog, catalogTable)) {
-              // if requiredTrait is ONLY_UPDATE_AFTER and table is ManagedTable,
-              // we can eliminate current normalize stage,
-              // cuz ManagedTable has preserved complete delete messages.
-              val input = normalize.getInput match {
-                case exchange: StreamPhysicalExchange =>
-                  exchange.getInput
-                case _ =>
-                  normalize.getInput
-              }
-              val inputPhysicalRel = input.asInstanceOf[StreamPhysicalRel]
-              return this.visit(inputPhysicalRel, UpdateKindTrait.ONLY_UPDATE_AFTER)
-            }
-          }
           // changelog normalize currently only supports input only sending UPDATE_AFTER
           val children = visitChildren(normalize, UpdateKindTrait.ONLY_UPDATE_AFTER)
           // use requiredTrait as providedTrait,

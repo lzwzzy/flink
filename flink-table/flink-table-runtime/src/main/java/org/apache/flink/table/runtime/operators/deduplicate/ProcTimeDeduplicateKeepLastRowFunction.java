@@ -18,7 +18,7 @@
 
 package org.apache.flink.table.runtime.operators.deduplicate;
 
-import org.apache.flink.configuration.Configuration;
+import org.apache.flink.api.common.functions.OpenContext;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.runtime.generated.GeneratedRecordEqualiser;
 import org.apache.flink.table.runtime.generated.RecordEqualiser;
@@ -37,6 +37,7 @@ public class ProcTimeDeduplicateKeepLastRowFunction
     private final boolean generateInsert;
     private final boolean inputIsInsertOnly;
     private final boolean isStateTtlEnabled;
+
     /** The code generated equaliser used to equal RowData. */
     private final GeneratedRecordEqualiser genRecordEqualiser;
 
@@ -59,8 +60,8 @@ public class ProcTimeDeduplicateKeepLastRowFunction
     }
 
     @Override
-    public void open(Configuration configure) throws Exception {
-        super.open(configure);
+    public void open(OpenContext openContext) throws Exception {
+        super.open(openContext);
         equaliser = genRecordEqualiser.newInstance(getRuntimeContext().getUserCodeClassLoader());
     }
 
