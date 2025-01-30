@@ -23,6 +23,8 @@ import org.apache.flink.util.concurrent.FutureUtils;
 import org.apache.flink.util.concurrent.ScheduledExecutor;
 
 import java.io.Serializable;
+import java.util.Collections;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
@@ -81,8 +83,8 @@ public class TestingRpcService implements RpcService {
     // ------------------------------------------------------------------------
 
     @Override
-    public CompletableFuture<Void> stopService() {
-        final CompletableFuture<Void> terminationFuture = backingRpcService.stopService();
+    public CompletableFuture<Void> closeAsync() {
+        final CompletableFuture<Void> terminationFuture = backingRpcService.closeAsync();
 
         terminationFuture.whenComplete(
                 (Void ignored, Throwable throwable) -> {
@@ -190,8 +192,14 @@ public class TestingRpcService implements RpcService {
     }
 
     @Override
-    public <C extends RpcEndpoint & RpcGateway> RpcServer startServer(C rpcEndpoint) {
-        return backingRpcService.startServer(rpcEndpoint);
+    public <C extends RpcGateway> C getSelfGateway(Class<C> selfGatewayType, RpcServer rpcServer) {
+        return backingRpcService.getSelfGateway(selfGatewayType, rpcServer);
+    }
+
+    @Override
+    public <C extends RpcEndpoint & RpcGateway> RpcServer startServer(
+            C rpcEndpoint, Map<String, String> loggingContext) {
+        return backingRpcService.startServer(rpcEndpoint, Collections.emptyMap());
     }
 
     @Override
