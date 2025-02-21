@@ -46,9 +46,6 @@ add the FlinkCEP dependency to the `pom.xml` of your project.
 {{< tab "Java" >}}
 {{< artifact flink-cep >}}
 {{< /tab >}}
-{{< tab "Scala" >}}
-{{< artifact flink-cep-scala withScalaVersion >}}
-{{< /tab >}}
 {{< /tabs >}}
 
 FlinkCEP is not part of the binary distribution. See how to link with it for cluster execution 
@@ -67,28 +64,13 @@ because FlinkCEP uses them for comparing and matching events.
 ```java
 DataStream<Event> input = ...;
 
-Pattern<Event, ?> pattern = Pattern.<Event>begin("start").where(
-        new SimpleCondition<Event>() {
-            @Override
-            public boolean filter(Event event) {
-                return event.getId() == 42;
-            }
-        }
-    ).next("middle").subtype(SubEvent.class).where(
-        new SimpleCondition<SubEvent>() {
-            @Override
-            public boolean filter(SubEvent subEvent) {
-                return subEvent.getVolume() >= 10.0;
-            }
-        }
-    ).followedBy("end").where(
-         new SimpleCondition<Event>() {
-            @Override
-            public boolean filter(Event event) {
-                return event.getName().equals("end");
-            }
-         }
-    );
+Pattern<Event, ?> pattern = Pattern.<Event>begin("start")
+    .where(SimpleCondition.of(event -> event.getId() == 42))
+    .next("middle")
+    .subtype(SubEvent.class)
+    .where(SimpleCondition.of(subEvent -> subEvent.getVolume() >= 10.0))
+    .followedBy("end")
+    .where(SimpleCondition.of(event -> event.getName().equals("end")));
 
 PatternStream<Event> patternStream = CEP.pattern(input, pattern);
 
@@ -317,12 +299,7 @@ whether to accept an event or not, based *only* on properties of the event itsel
 {{< tabs "3a34bfc1-691f-41e7-88ee-c76ca6430e4c" >}}
 {{< tab "Java" >}}
 ```java
-start.where(new SimpleCondition<Event>() {
-    @Override
-    public boolean filter(Event value) {
-        return value.getName().startsWith("foo");
-    }
-});
+start.where(SimpleCondition.of(value -> value.getName().startsWith("foo")));
 ```
 {{< /tab >}}
 {{< tab "Scala" >}}
@@ -338,12 +315,8 @@ via the `pattern.subtype(subClass)` method.
 {{< tabs "be703e92-5424-4a03-a358-abc84f0f2e65" >}}
 {{< tab "Java" >}}
 ```java
-start.subtype(SubEvent.class).where(new SimpleCondition<SubEvent>() {
-    @Override
-    public boolean filter(SubEvent value) {
-        return ...; // some condition
-    }
-});
+start.subtype(SubEvent.class)
+        .where(SimpleCondition.of(value -> ... /*some condition*/));
 ```
 {{< /tab >}}
 {{< tab "Scala" >}}
@@ -358,17 +331,8 @@ start.subtype(classOf[SubEvent]).where(subEvent => ... /* some condition */)
 {{< tabs "101511a2-3555-43c8-9c49-6c7ce24695f1" >}}
 {{< tab "Java" >}}
 ```java
-pattern.where(new SimpleCondition<Event>() {
-    @Override
-    public boolean filter(Event value) {
-        return ...; // some condition
-    }
-}).or(new SimpleCondition<Event>() {
-    @Override
-    public boolean filter(Event value) {
-        return ...; // or condition
-    }
-});
+pattern.where(SimpleCondition.of(value -> ... /*some condition*/))
+        .or(SimpleCondition.of(value -> ... /*some condition*/));
 ```
 {{< /tab >}}
 {{< tab "Scala" >}}
@@ -485,8 +449,6 @@ pattern.subtype(classOf[SubEvent])
 {{< /tabs >}}
 
 #### `oneOrMore()`
-
-Defines a subtype condition for the current pattern. An event can only match the pattern if it is of this subtype.
 
 Specifies that this pattern expects at least one occurrence of a matching event.
 By default a relaxed internal contiguity (between subsequent events) is used. For more info on
@@ -708,12 +670,12 @@ A pattern sequence can only have one temporal constraint. If multiple such const
 {{< tabs "df27eb6d-c532-430a-b56f-98ad4082e6d5" >}}
 {{< tab "Java" >}}
 ```java
-next.within(Time.seconds(10));
+next.within(Duration.ofSeconds(10));
 ```
 {{< /tab >}}
 {{< tab "Scala" >}}
 ```scala
-next.within(Time.seconds(10))
+next.within(Duration.ofSeconds(10))
 ```
 {{< /tab >}}
 {{< /tabs >}}
@@ -725,24 +687,18 @@ E.g. a pattern like:
 {{< tab "Java" >}}
 ```java
 Pattern.<Event>begin("start")
-    .next("middle").where(new SimpleCondition<Event>() {
-    @Override
-    public boolean filter(Event value) throws Exception {
-        return value.getName().equals("a");
-    }
-}).notFollowedBy("end").where(new SimpleCondition<Event>() {
-    @Override
-    public boolean filter(Event value) throws Exception {
-        return value.getName().equals("b");
-    }
-}).within(Time.seconds(10));
+    .next("middle")
+    .where(SimpleCondition.of(value -> value.getName().equals("a")))
+    .notFollowedBy("end")
+    .where(SimpleCondition.of(value -> value.getName().equals("b")))
+    .within(Duration.ofSeconds(10));
 ```
 {{< /tab >}}
 {{< tab "Scala" >}}
 ```scala
 Pattern.begin("start").where(_.getName().equals("a"))
 .notFollowedBy("end").where(_.getName == "b")
-.within(Time.seconds(10))
+.within(Duration.ofSeconds(10))
 ```
 {{< /tab >}}
 {{< /tabs >}}
@@ -776,24 +732,14 @@ E.g. a pattern like:
 {{< tabs consecutive >}}
 {{< tab "Java" >}}
 ```java
-Pattern.<Event>begin("start").where(new SimpleCondition<Event>() {
-  @Override
-  public boolean filter(Event value) throws Exception {
-    return value.getName().equals("c");
-  }
-})
-.followedBy("middle").where(new SimpleCondition<Event>() {
-  @Override
-  public boolean filter(Event value) throws Exception {
-    return value.getName().equals("a");
-  }
-}).oneOrMore().consecutive()
-.followedBy("end1").where(new SimpleCondition<Event>() {
-  @Override
-  public boolean filter(Event value) throws Exception {
-    return value.getName().equals("b");
-  }
-});
+Pattern.<Event>begin("start")
+    .where(SimpleCondition.of(value -> value.getName().equals("c")))
+    .followedBy("middle")
+    .where(SimpleCondition.of(value -> value.getName().equals("a")))
+    .oneOrMore()
+    .consecutive()
+    .followedBy("end1")
+    .where(SimpleCondition.of(value -> value.getName().equals("b")));
 ```
 {{< /tab >}}
 {{< tab "Scala" >}}
@@ -821,24 +767,14 @@ E.g. a pattern like:
 {{< tabs allowcombinations >}}
 {{< tab "Java" >}}
 ```java
-Pattern.<Event>begin("start").where(new SimpleCondition<Event>() {
-  @Override
-  public boolean filter(Event value) throws Exception {
-    return value.getName().equals("c");
-  }
-})
-.followedBy("middle").where(new SimpleCondition<Event>() {
-  @Override
-  public boolean filter(Event value) throws Exception {
-    return value.getName().equals("a");
-  }
-}).oneOrMore().allowCombinations()
-.followedBy("end1").where(new SimpleCondition<Event>() {
-  @Override
-  public boolean filter(Event value) throws Exception {
-    return value.getName().equals("b");
-  }
-});
+Pattern.<Event>begin("start")
+    .where(SimpleCondition.of(value -> value.getName().equals("c")))
+    .followedBy("middle")
+    .where(SimpleCondition.of(value -> value.getName().equals("a")))
+    .oneOrMore()
+    .allowCombinations()
+    .followedBy("end1")
+    .where(SimpleCondition.of(value -> value.getName().equals("b")));
 ```
 {{< /tab >}}
 {{< tab "Scala" >}}
@@ -1113,12 +1049,12 @@ If a non-completed event sequence exceeds this time, it is discarded.
 {{< tabs within >}}
 {{< tab "Java" >}}
 ```java
-pattern.within(Time.seconds(10));
+pattern.within(Duration.ofSeconds(10));
 ```
 {{< /tab >}}
 {{< tab "Scala" >}}
 ```scala
-pattern.within(Time.seconds(10))
+pattern.within(Duration.ofSeconds(10))
 ```
 {{< /tab >}}
 {{< /tabs >}}
@@ -1542,8 +1478,8 @@ cep operator (or when the match was generated in case of `PatternProcessFunction
 Options to configure the cache capacity of Flink CEP `SharedBuffer`.
 It could accelerate the CEP operate process speed and limit the number of elements of cache in pure memory. 
 
-<span class="label label-info">Note</span> It's only effective to limit usage of memory when `state.backend` was set as `rocksdb`, which would transport the elements exceeded the number of the cache into the rocksdb state storage instead of memory state storage.
-The configuration items are helpful for memory limitation when the `state.backend` is set as rocksdb. By contrast，when the `state.backend` is set as not `rocksdb`, the cache would cause performance decreased. Compared with old cache implemented with `Map`, the state part will contain more elements swapped out from new guava-cache, which would make it heavier to `copy on write` for state.
+<span class="label label-info">Note</span> It's only effective to limit usage of memory when `state.backend.type` was set as `rocksdb`, which would transport the elements exceeded the number of the cache into the rocksdb state storage instead of memory state storage.
+The configuration items are helpful for memory limitation when the `state.backend.type` is set as rocksdb. By contrast，when the `state.backend.type` is set as not `rocksdb`, the cache would cause performance decreased. Compared with old cache implemented with `Map`, the state part will contain more elements swapped out from new guava-cache, which would make it heavier to `copy on write` for state.
 
 {{< generated/cep_cache_configuration >}}
 
@@ -1568,17 +1504,11 @@ DataStream<Event> partitionedInput = input.keyBy(new KeySelector<Event, Integer>
 });
 
 Pattern<Event, ?> pattern = Pattern.<Event>begin("start")
-	.next("middle").where(new SimpleCondition<Event>() {
-		@Override
-		public boolean filter(Event value) throws Exception {
-			return value.getName().equals("error");
-		}
-	}).followedBy("end").where(new SimpleCondition<Event>() {
-		@Override
-		public boolean filter(Event value) throws Exception {
-			return value.getName().equals("critical");
-		}
-	}).within(Time.seconds(10));
+    .next("middle")
+    .where(SimpleCondition.of(value -> value.getName().equals("error")))
+    .followedBy("end")
+    .where(SimpleCondition.of(value -> value.getName().equals("critical")))
+    .within(Duration.ofSeconds(10));
 
 PatternStream<Event> patternStream = CEP.pattern(partitionedInput, pattern);
 
@@ -1601,7 +1531,7 @@ val partitionedInput = input.keyBy(event => event.getId)
 val pattern = Pattern.begin[Event]("start")
   .next("middle").where(_.getName == "error")
   .followedBy("end").where(_.getName == "critical")
-  .within(Time.seconds(10))
+  .within(Duration.ofSeconds(10))
 
 val patternStream = CEP.pattern(partitionedInput, pattern)
 
