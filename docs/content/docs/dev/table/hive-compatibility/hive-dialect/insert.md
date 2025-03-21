@@ -33,16 +33,16 @@ can be specified by value expressions or result from query.
 
 ```sql
 -- Stardard syntax
-INSERT { OVERWRITE | INTO } [TABLE] tablename
+INSERT { OVERWRITE TABLE | INTO [TABLE] }  tablename
  [PARTITION (partcol1[=val1], partcol2[=val2] ...) [IF NOT EXISTS]]
    { VALUES ( value [, ..] ) [, ( ... ) ] | select_statement FROM from_statement }
 ```
 
 ### Parameters
 
-- `OVERWRITE`
+- `OVERWRITE TABLE`
 
-  If specify `OVERWRITE`, it will overwrite any existing data in the table or partition.
+  If specify `OVERWRITE TABLE`, it will overwrite any existing data in the table or partition.
 
 - `PARTITION ( ... )`
 
@@ -51,7 +51,7 @@ INSERT { OVERWRITE | INTO } [TABLE] tablename
 
 - `VALUES ( value [, ..] ) [, ( ... ) ]`
 
-  Specifies the values to be inserted explicitly. A common must be used to separate each value in the clause.
+  Specifies the values to be inserted explicitly. A comma must be used to separate each value in the clause.
   More than one set of values can be specified to insert multiple rows.
 
 - select_statement
@@ -74,7 +74,7 @@ The dynamic partition columns must be specified last among the columns in the `S
 **Note:**
 
 In Hive, by default, users must specify at least one static partition in case of accidentally overwriting all partitions, and users can
-set the configuration `hive.exec.dynamic.partition.mode` to `nonstrict` to to allow all partitions to be dynamic.
+set the configuration `hive.exec.dynamic.partition.mode` to `nonstrict` to allow all partitions to be dynamic.
 
 But in Flink's Hive dialect, it'll always be `nonstrict` mode which means all partitions are allowed to be dynamic.
 {{< /hint >}}
@@ -86,7 +86,7 @@ But in Flink's Hive dialect, it'll always be `nonstrict` mode which means all pa
 INSERT INTO t1 VALUES ('k1', 'v1'), ('k2', 'v2');
 
 -- insert overwrite
-INSERT OVERWRITE t1 VALUES ('k1', 'v1'), ('k2', 'v2');;
+INSERT OVERWRITE TABLE t1 VALUES ('k1', 'v1'), ('k2', 'v2');;
 
 -- insert into table using select statement
 INSERT INTO TABLE t1 SELECT * FROM t2;
@@ -96,8 +96,8 @@ INSERT INTO TABLE t1 SELECT * FROM t2;
 INSERT INTO t1 PARTITION (year = 2022, month = 12) SELECT value FROM t2;
 
 --- dynamic partition 
-INSERT INTO t1 PARTITION (year = 2022, month) SELECT month, value FROM t2;
-INSERT INTO t1 PARTITION (year, month) SELECT 2022, month, value FROM t2;
+INSERT INTO t1 PARTITION (year = 2022, month) SELECT value, month FROM t2;
+INSERT INTO t1 PARTITION (year, month) SELECT value, 2022, month FROM t2;
 ```
 
 ## INSERT OVERWRITE DIRECTORY
@@ -106,7 +106,7 @@ INSERT INTO t1 PARTITION (year, month) SELECT 2022, month, value FROM t2;
 
 Query results can be inserted into filesystem directories by using a slight variation of the syntax above:
 ```sql
--- Standard syntax:
+-- Standard syntax
 INSERT OVERWRITE [LOCAL] DIRECTORY directory_path
   [ROW FORMAT row_format] [STORED AS file_format] 
   { VALUES ( value [, ..] ) [, ( ... ) ] | select_statement FROM from_statement }
@@ -130,7 +130,7 @@ row_format:
   The `LOCAL` keyword is optional. If `LOCAL` keyword is used, Flink will write data to the directory on the local file system.
 
 - `VALUES ( value [, ..] ) [, ( ... ) ]`
-  Specifies the values to be inserted explicitly. A common must be used to separate each value in the clause.
+  Specifies the values to be inserted explicitly. A comma must be used to separate each value in the clause.
   More than one set of values can be specified to insert multiple rows.
 
 - select_statement
@@ -175,8 +175,8 @@ In such syntax, Flink will minimize the number of data scans requires. Flink can
 ```sql
 -- multiple insert into table
 FROM from_statement
-  INSERT { OVERWRITE | INTO } [TABLE] tablename1 [PARTITION (partcol1=val1, partcol2=val2 ...) [IF NOT EXISTS] select_statement1,
-  INSERT { OVERWRITE | INTO } [TABLE] tablename2 [PARTITION ... [IF NOT EXISTS]] select_statement2
+  INSERT { OVERWRITE TABLE | INTO [TABLE] } tablename1 [PARTITION (partcol1=val1, partcol2=val2 ...) [IF NOT EXISTS]] select_statement1,
+  INSERT { OVERWRITE TABLE | INTO [TABLE] } tablename2 [PARTITION ... [IF NOT EXISTS]] select_statement2
   [, ... ]
 
 -- multiple insert into directory

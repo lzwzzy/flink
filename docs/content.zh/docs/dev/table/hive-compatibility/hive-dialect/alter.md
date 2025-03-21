@@ -47,7 +47,7 @@ ALTER (DATABASE|SCHEMA) database_name SET LOCATION hdfs_path;
 ### Synopsis
 
 - The uses of `SCHEMA` and `DATABASE` are interchangeable - they mean the same thing.
-- The `ALTER DATABASE .. SET LOCATION` statement doesn't move the contents of the database's current directory to the newly specified location.
+- The `ALTER DATABASE .. SET LOCATION` statement is only supported in Hive-2.4.0 or later. The statement doesn't move the contents of the database's current directory to the newly specified location.
   It does not change the locations associated with any tables/partitions under the specified database.
   It only changes the default parent-directory where new tables will be added for this database.
   This behaviour is analogous to how changing a table-directory does not move existing partitions to a different location.
@@ -56,9 +56,9 @@ ALTER (DATABASE|SCHEMA) database_name SET LOCATION hdfs_path;
 
 ```sql
 -- alter database's properties
-ALTER DATABASE d1 SET DBPROPERTIES ('p1' = 'v1', 'p2' = 'v2);
+ALTER DATABASE d1 SET DBPROPERTIES ('p1' = 'v1', 'p2' = 'v2');
 
--- alter database's localtion
+-- alter database's location
 ALTER DATABASE d1 SET LOCATION '/new/path';
 ```
 
@@ -104,7 +104,7 @@ table_properties:
 #### Examples
 
 ```sql
-ALTER TABLE table_name SET TBLPROPERTIES ('p1' = 'v1', 'p2' = 'v2');
+ALTER TABLE t1 SET TBLPROPERTIES ('p1' = 'v1', 'p2' = 'v2');
 ```
 
 ### Add / Remove SerDe Properties
@@ -280,10 +280,10 @@ and cascades the same change to all the partition metadata.
 
 ```sql
 -- add column
-ALTER table t1 ADD COLUMNS (ch CHAR(5), name STRING) CASCADE;
+ALTER TABLE t1 ADD COLUMNS (ch CHAR(5), name STRING) CASCADE;
 
 -- replace column
-ALTER table t1 REPLACE COLUMNS (t1 TINYINT, d DECIMAL) CASCADE;
+ALTER TABLE t1 REPLACE COLUMNS (t1 TINYINT, d DECIMAL) CASCADE;
 ```
 
 ## ALTER VIEW
